@@ -6,7 +6,6 @@
   <title>Lakebase Ticketing System</title>
   <style>
     :root {
-      --bg: #0f172a;
       --panel: rgba(15, 23, 42, 0.78);
       --panel-border: rgba(148, 163, 184, 0.18);
       --text: #e2e8f0;
@@ -25,21 +24,9 @@
         radial-gradient(circle at right, rgba(34, 197, 94, 0.18), transparent 24%),
         linear-gradient(180deg, #020617 0%, #0f172a 100%);
     }
-    .shell {
-      max-width: 1400px;
-      margin: 0 auto;
-      padding: 32px 20px 40px;
-    }
-    .hero {
-      display: grid;
-      gap: 12px;
-      margin-bottom: 24px;
-    }
-    h1 {
-      margin: 0;
-      font-size: clamp(2rem, 4vw, 3.8rem);
-      letter-spacing: -0.03em;
-    }
+    .shell { max-width: 1400px; margin: 0 auto; padding: 32px 20px 40px; }
+    .hero { display: grid; gap: 12px; margin-bottom: 24px; }
+    h1 { margin: 0; font-size: clamp(2rem, 4vw, 3.8rem); letter-spacing: -0.03em; }
     .subtle { color: var(--muted); max-width: 760px; line-height: 1.6; }
     .card {
       background: var(--panel);
@@ -59,7 +46,7 @@
     .card-body { padding: 20px; }
     .form-compact {
       display: grid;
-      grid-template-columns: 1fr 200px auto;
+      grid-template-columns: 1fr 220px 180px auto;
       gap: 12px;
       align-items: end;
     }
@@ -82,13 +69,6 @@
       font-weight: 700;
       white-space: nowrap;
     }
-    button:hover { opacity: 0.9; }
-    .meta {
-      font-size: 0.9rem;
-      color: var(--muted);
-      line-height: 1.5;
-      margin-top: 8px;
-    }
     .status {
       display: inline-flex;
       align-items: center;
@@ -99,40 +79,21 @@
       margin-top: 10px;
       font-size: 0.85rem;
     }
-    .status-dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 999px;
-      background: var(--accent-2);
-    }
-    .layout {
-      display: grid;
-      grid-template-columns: 1fr 500px;
-      gap: 20px;
-    }
-    .tickets {
-      display: grid;
-      gap: 12px;
-    }
+    .status-dot { width: 8px; height: 8px; border-radius: 999px; background: var(--accent-2); }
+    .layout { display: grid; grid-template-columns: 1fr 500px; gap: 20px; }
+    .tickets { display: grid; gap: 12px; }
     .ticket {
       border: 1px solid rgba(148, 163, 184, 0.18);
       border-radius: 16px;
       background: rgba(15, 23, 42, 0.78);
       padding: 16px;
       cursor: pointer;
-      transition: all 0.2s;
     }
-    .ticket:hover { border-color: rgba(56, 189, 248, 0.3); }
-    .ticket.active { 
-      outline: 2px solid rgba(56, 189, 248, 0.5); 
+    .ticket.active {
+      outline: 2px solid rgba(56, 189, 248, 0.5);
       background: rgba(56, 189, 248, 0.08);
     }
-    .ticket-head {
-      display: flex;
-      justify-content: space-between;
-      gap: 16px;
-      align-items: center;
-    }
+    .ticket-head { display: flex; justify-content: space-between; gap: 16px; align-items: center; }
     .ticket-title { font-weight: 700; font-size: 1.05rem; }
     .badge {
       padding: 4px 10px;
@@ -149,15 +110,10 @@
       margin-top: 8px;
       font-size: 0.88rem;
       display: flex;
-      gap: 16px;
-    }
-    .messages {
-      display: grid;
       gap: 12px;
-      max-height: 400px;
-      overflow-y: auto;
-      padding: 2px;
+      flex-wrap: wrap;
     }
+    .messages { display: grid; gap: 12px; max-height: 400px; overflow-y: auto; padding: 2px; }
     .message {
       border-left: 3px solid rgba(56, 189, 248, 0.6);
       padding: 10px 12px;
@@ -175,17 +131,19 @@
     .split { display: grid; gap: 14px; }
     .error { color: #fecaca; }
     .hidden { display: none; }
-    #detail-panel { 
-      position: sticky;
-      top: 20px;
-      align-self: start;
+    #detail-panel { position: sticky; top: 20px; align-self: start; }
+    .toolbar {
+      display: flex;
+      gap: 12px;
+      align-items: end;
+      flex-wrap: wrap;
+      margin-bottom: 12px;
     }
+    .toolbar .form-field { min-width: 200px; }
     @media (max-width: 1100px) {
       .layout { grid-template-columns: 1fr; }
       #detail-panel { position: relative; top: 0; }
-      .form-compact {
-        grid-template-columns: 1fr;
-      }
+      .form-compact { grid-template-columns: 1fr; }
     }
   </style>
 </head>
@@ -194,7 +152,7 @@
     <div class="hero">
       <h1>Support tickets, backed by Lakebase.</h1>
       <div class="subtle">
-        Create support tickets, post messages to keep the conversation moving, and store every operational record in Lakebase.
+        Create support tickets, prioritize them, filter by status, and store every operational record in Lakebase.
       </div>
     </div>
 
@@ -217,6 +175,15 @@
             </select>
           </div>
 
+          <div class="form-field">
+            <label for="priority">Priority</label>
+            <select id="priority" name="priority">
+              <option value="low">Low</option>
+              <option value="medium" selected>Medium</option>
+              <option value="high">High</option>
+            </select>
+          </div>
+
           <button type="submit">Create ticket</button>
         </form>
 
@@ -228,6 +195,19 @@
       <section class="card">
         <h2>All Tickets</h2>
         <div class="card-body">
+          <div class="toolbar">
+            <div class="form-field">
+              <label for="filter-status">Filter by status</label>
+              <select id="filter-status">
+                <option value="">All</option>
+                <option value="open">Open</option>
+                <option value="in_progress">In progress</option>
+                <option value="resolved">Resolved</option>
+                <option value="closed">Closed</option>
+              </select>
+            </div>
+            <button type="button" id="clear-filter" style="width:auto; padding:12px 16px;">Clear filter</button>
+          </div>
           <div id="tickets" class="tickets"></div>
         </div>
       </section>
@@ -244,6 +224,9 @@
     const ticketStatus = document.getElementById("ticket-status");
     const ticketsEl = document.getElementById("tickets");
     const detailEl = document.getElementById("detail");
+    const detailPanel = document.getElementById("detail-panel");
+    const filterStatus = document.getElementById("filter-status");
+    const clearFilter = document.getElementById("clear-filter");
     let selectedTicketId = null;
 
     function setStatus(message, isError = false) {
@@ -266,9 +249,10 @@
     function renderTickets(items) {
       ticketsEl.innerHTML = "";
       if (!items.length) {
-        ticketsEl.innerHTML = '<div class="empty">No tickets yet. Create one above to get started.</div>';
+        ticketsEl.innerHTML = '<div class="empty">No tickets match this filter.</div>';
         return;
       }
+
       items.forEach((ticket) => {
         const row = document.createElement("div");
         row.className = "ticket" + (ticket.ticket_id === selectedTicketId ? " active" : "");
@@ -290,15 +274,16 @@
         const meta = document.createElement("div");
         meta.className = "ticket-meta";
         const createdBy = document.createElement("span");
-        createdBy.textContent = (ticket.created_by || "Unknown");
+        createdBy.textContent = "Created by: " + (ticket.created_by || "Unknown");
         const createdAt = document.createElement("span");
-        createdAt.textContent = formatDate(ticket.created_at);
+        createdAt.textContent = "Created: " + formatDate(ticket.created_at);
+        const priority = document.createElement("span");
+        priority.textContent = "Priority: " + (ticket.priority || "medium");
         const messages = document.createElement("span");
         messages.textContent = (ticket.message_count ?? 0) + " messages";
         meta.appendChild(createdBy);
-        meta.appendChild(document.createTextNode("•"));
         meta.appendChild(createdAt);
-        meta.appendChild(document.createTextNode("•"));
+        meta.appendChild(priority);
         meta.appendChild(messages);
 
         row.appendChild(head);
@@ -309,7 +294,6 @@
     }
 
     function renderDetail(ticket, messages) {
-      const detailPanel = document.getElementById("detail-panel");
       detailEl.innerHTML = "";
 
       if (!ticket) {
@@ -330,9 +314,8 @@
 
       const meta = document.createElement("div");
       meta.className = "meta";
-      meta.innerHTML = `<strong>Created by:</strong> ${ticket.created_by} &nbsp;•&nbsp; ${formatDate(ticket.created_at)}`;
+      meta.textContent = `Created by: ${ticket.created_by} · ${formatDate(ticket.created_at)} · Priority: ${ticket.priority}`;
 
-      // Status change form
       const statusForm = document.createElement("form");
       statusForm.style.marginTop = "12px";
       statusForm.style.display = "flex";
@@ -341,10 +324,10 @@
       statusForm.innerHTML = `
         <label for="ticket-status-select" style="margin: 0; font-size: 0.92rem;">Status:</label>
         <select id="ticket-status-select" name="status" style="width: auto; padding: 8px 12px;">
-          <option value="open" ${ticket.status === 'open' ? 'selected' : ''}>Open</option>
-          <option value="in_progress" ${ticket.status === 'in_progress' ? 'selected' : ''}>In progress</option>
-          <option value="resolved" ${ticket.status === 'resolved' ? 'selected' : ''}>Resolved</option>
-          <option value="closed" ${ticket.status === 'closed' ? 'selected' : ''}>Closed</option>
+          <option value="open" ${ticket.status === "open" ? "selected" : ""}>Open</option>
+          <option value="in_progress" ${ticket.status === "in_progress" ? "selected" : ""}>In progress</option>
+          <option value="resolved" ${ticket.status === "resolved" ? "selected" : ""}>Resolved</option>
+          <option value="closed" ${ticket.status === "closed" ? "selected" : ""}>Closed</option>
         </select>
         <button type="submit" style="width: auto; padding: 8px 16px; margin: 0;">Update</button>
       `;
@@ -370,7 +353,6 @@
       header.appendChild(meta);
       header.appendChild(statusForm);
 
-      const messagesSection = document.createElement("div");
       const messagesTitle = document.createElement("h3");
       messagesTitle.textContent = "Messages";
       messagesTitle.style.fontSize = "1rem";
@@ -395,9 +377,6 @@
         });
       }
 
-      messagesSection.appendChild(messagesTitle);
-      messagesSection.appendChild(list);
-
       const messageForm = document.createElement("form");
       messageForm.style.marginTop = "16px";
       messageForm.innerHTML = `
@@ -409,9 +388,7 @@
       messageForm.addEventListener("submit", async (event) => {
         event.preventDefault();
         const formData = new FormData(messageForm);
-        const payload = {
-          message_text: formData.get("message_text"),
-        };
+        const payload = { message_text: formData.get("message_text") };
 
         const resp = await fetch(`/tickets/${ticket.ticket_id}/messages`, {
           method: "POST",
@@ -429,12 +406,15 @@
       });
 
       detailEl.appendChild(header);
-      detailEl.appendChild(messagesSection);
+      detailEl.appendChild(messagesTitle);
+      detailEl.appendChild(list);
       detailEl.appendChild(messageForm);
     }
 
     async function loadTickets() {
-      const resp = await fetch("/tickets");
+      const status = filterStatus.value;
+      const url = status ? `/tickets?status=${encodeURIComponent(status)}` : "/tickets";
+      const resp = await fetch(url);
       const data = await resp.json();
       if (!resp.ok) {
         setStatus(data.error || resp.statusText, true);
@@ -463,6 +443,7 @@
       const payload = {
         title: formData.get("title"),
         status: formData.get("status"),
+        priority: formData.get("priority"),
       };
 
       setStatus("Creating ticket...");
@@ -479,10 +460,22 @@
 
       ticketForm.reset();
       document.getElementById("status").value = "open";
+      document.getElementById("priority").value = "medium";
       selectedTicketId = data.ticket_id;
       setStatus("Ticket created");
       await loadTickets();
       await openTicket(data.ticket_id);
+    });
+
+    filterStatus.addEventListener("change", () => {
+      selectedTicketId = null;
+      detailPanel.classList.add("hidden");
+      loadTickets().catch((err) => setStatus("Failed to load tickets: " + err, true));
+    });
+
+    clearFilter.addEventListener("click", () => {
+      filterStatus.value = "";
+      filterStatus.dispatchEvent(new Event("change"));
     });
 
     loadTickets().catch((err) => setStatus("Failed to load tickets: " + err, true));

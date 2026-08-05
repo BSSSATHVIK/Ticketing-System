@@ -1,10 +1,10 @@
 # Ticketing System Databricks App
 
-A Flask-based Databricks App that lets users create support tickets and add messages to those tickets. All operational data lives in Lakebase.
+A Flask-based Databricks App that lets users create support tickets, assign priority, filter by status, and add messages to those tickets. All operational data lives in Lakebase.
 
 ## What it includes
 
-- Browser UI for creating tickets and posting ticket messages
+- Browser UI for creating tickets, setting priority, filtering by status, and posting ticket messages
 - `tickets` table in Lakebase
 - `ticket_messages` table in Lakebase
 - JSON endpoints for listing tickets and reading a ticket with its messages
@@ -20,8 +20,10 @@ A Flask-based Databricks App that lets users create support tickets and add mess
 
 - `GET /healthz` - health check
 - `GET /tickets` - list all tickets
+- `GET /tickets?status=open` - list tickets filtered by status
 - `POST /tickets` - create a ticket
 - `GET /tickets/<ticket_id>` - get one ticket plus its messages
+- `PATCH /tickets/<ticket_id>` - update ticket status or priority
 - `POST /tickets/<ticket_id>/messages` - add a message to a ticket
 
 ## Lakebase tables
@@ -33,6 +35,7 @@ CREATE TABLE tickets (
   ticket_id TEXT PRIMARY KEY,
   title TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'open',
+  priority TEXT NOT NULL DEFAULT 'medium',
   created_by TEXT NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
