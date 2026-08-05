@@ -193,6 +193,34 @@ def get_ticket(ticket_id: str):
     return jsonify({"ticket": ticket, "messages": _message_rows(ticket_id)})
 
 
+@app.route("/tickets/<ticket_id>", methods=["PATCH"])
+def update_ticket(ticket_id: str):
+    ensure_schema()
+    ticket = _ticket_row(ticket_id)
+    if ticket is None:
+        abort(404, description="Ticket not found")
+
+    data = _payload()
+    
+    # Only allow status updates for now
+    if "status" in data:
+        try:
+            status = _normalize_status(data.get("status"))
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+
+        lakebase.run_write(
+            f"""
+            UPDATE {TICKETS_TABLE_NAME}
+            SET status = %s
+            WHERE ticket_id = %s
+            """,
+            (status, ticket_id),
+        )
+
+    return jsonify(_ticket_row(ticket_id))
+
+
 @app.route("/tickets/<ticket_id>/messages", methods=["POST"])
 def add_message(ticket_id: str):
     ensure_schema()
