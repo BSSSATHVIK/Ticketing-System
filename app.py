@@ -31,6 +31,7 @@ _w = WorkspaceClient()
 TICKETS_TABLE_NAME = os.environ.get("TICKETS_TABLE_NAME", "tickets")
 TICKET_MSG_TABLE_NAME = os.environ.get("TICKET_MSG_TABLE_NAME", "ticket_messages")
 ALLOWED_STATUSES = {"open", "in_progress", "resolved", "closed"}
+ALLOWED_PRIORITIES = {"low", "medium", "high"}
 
 
 def ensure_tickets_table() -> None:
@@ -40,6 +41,7 @@ def ensure_tickets_table() -> None:
             ticket_id TEXT PRIMARY KEY,
             title TEXT NOT NULL,
             status TEXT NOT NULL DEFAULT 'open',
+            priority TEXT NOT NULL DEFAULT 'medium',
             created_by TEXT NOT NULL,
             created_at TIMESTAMPTZ NOT NULL DEFAULT now()
         )
@@ -91,10 +93,17 @@ def _normalize_status(value: str | None) -> str:
     return status
 
 
+def _normalize_priority(value: str | None) -> str:
+    priority = (value or "medium").strip().lower()
+    if priority not in ALLOWED_PRIORITIES:
+        raise ValueError(f"Invalid priority: {value!r}")
+    return priority
+
+
 def _ticket_row(ticket_id: str):
     rows = lakebase.run_query(
         f"""
-        SELECT ticket_id, title, status, created_by, created_at
+        SELECT ticket_id, title, status, priority, created_by, created_at
         FROM {TICKETS_TABLE_NAME}
         WHERE ticket_id = %s
         """,
@@ -139,20 +148,33 @@ def index():
 @app.route("/tickets", methods=["GET"])
 def list_tickets():
     ensure_schema()
+    status_filter = request.args.get("status", "").strip().lower()
+    if status_filter and status_filter not in ALLOWED_STATUSES:
+        return jsonify({"error": f"Invalid status filter: {status_filter!r}"}), 400
+
+    where_clause = ""
+    params: tuple = ()
+    if status_filter:
+        where_clause = "WHERE t.status = %s"
+        params = (status_filter,)
+
     rows = lakebase.run_query(
         f"""
         SELECT
             t.ticket_id,
             t.title,
             t.status,
+            t.priority,
             t.created_by,
             t.created_at,
             COUNT(m.message_id)::int AS message_count
         FROM {TICKETS_TABLE_NAME} t
         LEFT JOIN {TICKET_MSG_TABLE_NAME} m ON m.ticket_id = t.ticket_id
-        GROUP BY t.ticket_id, t.title, t.status, t.created_by, t.created_at
+        {where_clause}
+        GROUP BY t.ticket_id, t.title, t.status, t.priority, t.created_by, t.created_at
         ORDER BY t.created_at DESC
-        """
+        """,
+        params,
     )
     return jsonify(rows)
 
@@ -170,15 +192,20 @@ def create_ticket():
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
 
+    try:
+        priority = _normalize_priority(data.get("priority"))
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
     created_by = str(data.get("created_by", "")).strip() or _current_user_email()
     ticket_id = str(uuid.uuid4())
 
     lakebase.run_write(
         f"""
-        INSERT INTO {TICKETS_TABLE_NAME} (ticket_id, title, status, created_by)
-        VALUES (%s, %s, %s, %s)
+        INSERT INTO {TICKETS_TABLE_NAME} (ticket_id, title, status, priority, created_by)
+        VALUES (%s, %s, %s, %s, %s)
         """,
-        (ticket_id, title, status, created_by),
+        (ticket_id, title, status, priority, created_by),
     )
 
     return jsonify(_ticket_row(ticket_id)), 201
@@ -191,6 +218,48 @@ def get_ticket(ticket_id: str):
     if ticket is None:
         abort(404, description="Ticket not found")
     return jsonify({"ticket": ticket, "messages": _message_rows(ticket_id)})
+
+
+@app.route("/tickets/<ticket_id>", methods=["PATCH"])
+def update_ticket(ticket_id: str):
+    ensure_schema()
+    ticket = _ticket_row(ticket_id)
+    if ticket is None:
+        abort(404, description="Ticket not found")
+
+    data = _payload()
+
+    if "status" in data:
+        try:
+            status = _normalize_status(data.get("status"))
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+
+        lakebase.run_write(
+            f"""
+            UPDATE {TICKETS_TABLE_NAME}
+            SET status = %s
+            WHERE ticket_id = %s
+            """,
+            (status, ticket_id),
+        )
+
+    if "priority" in data:
+        try:
+            priority = _normalize_priority(data.get("priority"))
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+
+        lakebase.run_write(
+            f"""
+            UPDATE {TICKETS_TABLE_NAME}
+            SET priority = %s
+            WHERE ticket_id = %s
+            """,
+            (priority, ticket_id),
+        )
+
+    return jsonify(_ticket_row(ticket_id))
 
 
 @app.route("/tickets/<ticket_id>/messages", methods=["POST"])
