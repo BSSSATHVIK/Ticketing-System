@@ -13,7 +13,6 @@
       --muted: #94a3b8;
       --accent: #38bdf8;
       --accent-2: #22c55e;
-      --danger: #fb7185;
     }
     * { box-sizing: border-box; }
     body {
@@ -79,11 +78,6 @@
       border: 0;
       font-weight: 700;
     }
-    button.secondary {
-      background: rgba(51, 65, 85, 0.8);
-      border: 1px solid rgba(148, 163, 184, 0.2);
-      font-weight: 600;
-    }
     .meta {
       font-size: 0.9rem;
       color: var(--muted);
@@ -106,7 +100,7 @@
       border-radius: 999px;
       background: var(--accent-2);
     }
-    .tickets {
+    .tickets, .messages {
       display: grid;
       gap: 12px;
     }
@@ -117,9 +111,7 @@
       padding: 16px;
       cursor: pointer;
     }
-    .ticket.active {
-      outline: 2px solid rgba(56, 189, 248, 0.5);
-    }
+    .ticket.active { outline: 2px solid rgba(56, 189, 248, 0.5); }
     .ticket-head {
       display: flex;
       justify-content: space-between;
@@ -142,11 +134,6 @@
       display: grid;
       gap: 8px;
     }
-    .messages {
-      display: grid;
-      gap: 12px;
-      margin-top: 18px;
-    }
     .message {
       border-left: 3px solid rgba(56, 189, 248, 0.6);
       padding: 10px 12px;
@@ -160,10 +147,7 @@
       border-radius: 12px;
       padding: 16px;
     }
-    .split {
-      display: grid;
-      gap: 14px;
-    }
+    .split { display: grid; gap: 14px; }
     .error { color: #fecaca; }
     @media (max-width: 900px) {
       .grid { grid-template-columns: 1fr; }
@@ -233,9 +217,7 @@
       const dot = document.createElement("span");
       dot.className = "status-dot";
       const text = document.createElement("span");
-      if (isError) {
-        text.className = "error";
-      }
+      if (isError) text.className = "error";
       text.textContent = message;
       ticketStatus.appendChild(dot);
       ticketStatus.appendChild(text);
@@ -256,7 +238,6 @@
       items.forEach((ticket) => {
         const row = document.createElement("div");
         row.className = "ticket" + (ticket.ticket_id === selectedTicketId ? " active" : "");
-        const count = ticket.message_count ?? 0;
 
         const head = document.createElement("div");
         head.className = "ticket-head";
@@ -279,7 +260,7 @@
         const createdAt = document.createElement("div");
         createdAt.textContent = "Created: " + formatDate(ticket.created_at);
         const messages = document.createElement("div");
-        messages.textContent = "Messages: " + count;
+        messages.textContent = "Messages: " + (ticket.message_count ?? 0);
         body.appendChild(createdBy);
         body.appendChild(createdAt);
         body.appendChild(messages);
