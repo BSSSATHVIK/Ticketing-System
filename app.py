@@ -1,80 +1,127 @@
 """
-Databricks App boilerplate:
-- Serves a small Flask API
-- Reads/writes to Lakebase (Databricks-managed Postgres) via lakebase.py
-- Pulls data from the Massive API via massive_client.py and syncs it into Lakebase
+Databricks App for a simple support ticketing system.
+
+The app stores operational data in Lakebase and provides:
+- a browser UI for creating tickets and posting messages
+- JSON endpoints for listing tickets and reading ticket details
 
 Run locally:
     python app.py
-Deploy as a Databricks App using app.yaml.
 """
+
+from __future__ import annotations
 
 import logging
 import os
-import re
+import uuid
+from http import HTTPStatus
 
-import requests
 from databricks.sdk import WorkspaceClient
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, abort, jsonify, render_template, request
+from werkzeug.exceptions import HTTPException
 
 import lakebase
-from massive_client import MassiveClient
 
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("massive-app")
+logger = logging.getLogger("ticketing-app")
 
 app = Flask(__name__)
 _w = WorkspaceClient()
 
-TABLE_NAME = os.environ.get("MASSIVE_TABLE_NAME", "massive_records")
-WATCHLIST_TABLE_NAME = os.environ.get("WATCHLIST_TABLE_NAME", "watchlist")
-
-# Basic stock ticker shape check: 1-10 uppercase letters, with an optional
-# ".X" or ".XX" share-class suffix (e.g. "BRK.B"). This rejects obviously
-# malformed input before we even call the Massive API.
-_TICKER_RE = re.compile(r"^[A-Z]{1,10}(\.[A-Z]{1,2})?$")
+TICKETS_TABLE_NAME = os.environ.get("TICKETS_TABLE_NAME", "tickets")
+TICKET_MSG_TABLE_NAME = os.environ.get("TICKET_MSG_TABLE_NAME", "ticket_messages")
+ALLOWED_STATUSES = {"open", "in_progress", "resolved", "closed"}
+ALLOWED_PRIORITIES = {"low", "medium", "high"}
 
 
-def ensure_table():
-    """Create the destination table in Lakebase if it doesn't exist yet."""
+def ensure_tickets_table() -> None:
     lakebase.run_write(
         f"""
-        CREATE TABLE IF NOT EXISTS {TABLE_NAME} (
-            id TEXT PRIMARY KEY,
-            payload JSONB NOT NULL,
-            synced_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        CREATE TABLE IF NOT EXISTS {TICKETS_TABLE_NAME} (
+            ticket_id TEXT PRIMARY KEY,
+            title TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'open',
+            priority TEXT NOT NULL DEFAULT 'medium',
+            created_by TEXT NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now()
         )
         """
     )
 
 
-def ensure_watchlist_table():
-    """Create the watchlist table in Lakebase if it doesn't exist yet."""
+def ensure_ticket_msg_table() -> None:
     lakebase.run_write(
         f"""
-        CREATE TABLE IF NOT EXISTS {WATCHLIST_TABLE_NAME} (
-            symbol TEXT NOT NULL,
-            email TEXT NOT NULL,
-            latest_price NUMERIC,
-            updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-            PRIMARY KEY (symbol, email)
+        CREATE TABLE IF NOT EXISTS {TICKET_MSG_TABLE_NAME} (
+            message_id TEXT PRIMARY KEY,
+            ticket_id TEXT NOT NULL REFERENCES {TICKETS_TABLE_NAME}(ticket_id) ON DELETE CASCADE,
+            message_text TEXT NOT NULL,
+            author TEXT NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now()
         )
         """
     )
+
+
+def ensure_schema() -> None:
+    ensure_tickets_table()
+    ensure_ticket_msg_table()
 
 
 def _current_user_email() -> str:
-    """
-    Resolve the current user's email so the watchlist can be personalized.
-
-    Databricks Apps inject the logged-in user's identity via the
-    X-Forwarded-Email header on every request. Fall back to the Databricks
-    SDK's current_user API for local development where that header isn't set.
-    """
     header_email = request.headers.get("X-Forwarded-Email")
     if header_email:
         return header_email
-    return _w.current_user.me().user_name
+    try:
+        return _w.current_user.me().user_name
+    except Exception:
+        return os.getenv("LOCAL_USER_EMAIL", "local-user@example.com")
+
+
+def _payload() -> dict:
+    if request.is_json:
+        data = request.get_json(silent=True)
+        return data if isinstance(data, dict) else {}
+    form_data = request.form.to_dict()
+    return form_data if isinstance(form_data, dict) else {}
+
+
+def _normalize_status(value: str | None) -> str:
+    status = (value or "open").strip().lower()
+    if status not in ALLOWED_STATUSES:
+        raise ValueError(f"Invalid status: {value!r}")
+    return status
+
+
+def _normalize_priority(value: str | None) -> str:
+    priority = (value or "medium").strip().lower()
+    if priority not in ALLOWED_PRIORITIES:
+        raise ValueError(f"Invalid priority: {value!r}")
+    return priority
+
+
+def _ticket_row(ticket_id: str):
+    rows = lakebase.run_query(
+        f"""
+        SELECT ticket_id, title, status, priority, created_by, created_at
+        FROM {TICKETS_TABLE_NAME}
+        WHERE ticket_id = %s
+        """,
+        (ticket_id,),
+    )
+    return rows[0] if rows else None
+
+
+def _message_rows(ticket_id: str):
+    return lakebase.run_query(
+        f"""
+        SELECT message_id, ticket_id, message_text, author, created_at
+        FROM {TICKET_MSG_TABLE_NAME}
+        WHERE ticket_id = %s
+        ORDER BY created_at ASC
+        """,
+        (ticket_id,),
+    )
 
 
 @app.route("/healthz")
@@ -82,179 +129,171 @@ def healthz():
     return jsonify({"status": "ok"})
 
 
+@app.errorhandler(HTTPException)
+def handle_http_exception(err: HTTPException):
+    return jsonify({"error": err.description}), err.code
+
+
 @app.errorhandler(Exception)
 def handle_exception(err):
-    """Ensure all unhandled errors return JSON (not an HTML error page),
-    so the frontend's resp.json() call never chokes on HTML."""
     logger.exception("Unhandled exception while processing request")
-    status_code = getattr(err, "code", 500)
-    if not isinstance(status_code, int):
-        status_code = 500
-    return jsonify({"error": str(err)}), status_code
+    return jsonify({"error": "Internal server error"}), HTTPStatus.INTERNAL_SERVER_ERROR
 
 
 @app.route("/")
 def index():
-    """Simple UI to submit a list of stock symbols to sync from Massive."""
     return render_template("index.html")
 
 
-@app.route("/records")
-def list_records():
-    """Read records already synced into Lakebase."""
-    limit = int(request.args.get("limit", 100))
+@app.route("/tickets", methods=["GET"])
+def list_tickets():
+    ensure_schema()
+    status_filter = request.args.get("status", "").strip().lower()
+    if status_filter and status_filter not in ALLOWED_STATUSES:
+        return jsonify({"error": f"Invalid status filter: {status_filter!r}"}), 400
+
+    where_clause = ""
+    params: tuple = ()
+    if status_filter:
+        where_clause = "WHERE t.status = %s"
+        params = (status_filter,)
+
     rows = lakebase.run_query(
-        f"SELECT id, payload, synced_at FROM {TABLE_NAME} ORDER BY synced_at DESC LIMIT %s",
-        (limit,),
+        f"""
+        SELECT
+            t.ticket_id,
+            t.title,
+            t.status,
+            t.priority,
+            t.created_by,
+            t.created_at,
+            COUNT(m.message_id)::int AS message_count
+        FROM {TICKETS_TABLE_NAME} t
+        LEFT JOIN {TICKET_MSG_TABLE_NAME} m ON m.ticket_id = t.ticket_id
+        {where_clause}
+        GROUP BY t.ticket_id, t.title, t.status, t.priority, t.created_by, t.created_at
+        ORDER BY t.created_at DESC
+        """,
+        params,
     )
     return jsonify(rows)
 
 
-@app.route("/sync", methods=["POST"])
-def sync_from_massive():
-    """
-    Pull data from the Massive API (paginated, potentially huge dataset) and
-    upsert it into Lakebase in batches.
-    """
-    ensure_table()
-    client = MassiveClient()
+@app.route("/tickets", methods=["POST"])
+def create_ticket():
+    ensure_schema()
+    data = _payload()
+    title = str(data.get("title", "")).strip()
+    if not title:
+        return jsonify({"error": "Title is required"}), 400
 
-    path = request.json.get("path", "/records") if request.is_json else "/records"
-    batch_size = int(request.args.get("batch_size", 500))
-
-    batch = []
-    total = 0
-    for item in client.paginated_get(path):
-        batch.append(item)
-        if len(batch) >= batch_size:
-            total += _upsert_batch(batch)
-            batch = []
-
-    if batch:
-        total += _upsert_batch(batch)
-
-    return jsonify({"synced": total})
-
-
-@app.route("/watchlist", methods=["GET"])
-def get_watchlist():
-    """Return the current user's watchlist symbols, with their last known price."""
-    ensure_watchlist_table()
-    email = _current_user_email()
-    rows = lakebase.run_query(
-        f"SELECT symbol, email, latest_price, updated_at FROM {WATCHLIST_TABLE_NAME} "
-        f"WHERE email = %s ORDER BY symbol ASC",
-        (email,),
-    )
-    return jsonify(rows)
-
-
-@app.route("/watchlist", methods=["POST"])
-def add_to_watchlist():
-    """
-    Fetch the latest price for a single stock symbol from Massive using
-    exactly ONE API call (see MassiveClient.get_latest_price), then add/
-    update that symbol on the watchlist in Lakebase.
-    """
-    ensure_watchlist_table()
-
-    if request.is_json:
-        symbol = request.json.get("symbol", "")
-    else:
-        symbol = request.form.get("symbol", "")
-
-    symbol = symbol.strip().upper() if isinstance(symbol, str) else ""
-
-    if not symbol or not _TICKER_RE.match(symbol):
-        return jsonify({"error": f"Invalid ticker symbol: {symbol!r}"}), 400
-
-    client = MassiveClient()
     try:
-        data = client.get_latest_price(symbol)  # <-- single API call, latest price only
-    except requests.HTTPError:
-        # Massive returns a 404/4xx for tickers it doesn't recognize.
-        return jsonify({"error": f"Unknown ticker symbol: {symbol}"}), 400
+        status = _normalize_status(data.get("status"))
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
 
-    price = _extract_latest_price(data)
-    if price is None:
-        # No usable price in the response (e.g. delisted/invalid ticker
-        # that still 200s with an empty result set) - don't add it.
-        return jsonify({"error": f"No price data available for ticker: {symbol}"}), 400
+    try:
+        priority = _normalize_priority(data.get("priority"))
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
 
-    email = _current_user_email()
+    created_by = str(data.get("created_by", "")).strip() or _current_user_email()
+    ticket_id = str(uuid.uuid4())
 
     lakebase.run_write(
         f"""
-        INSERT INTO {WATCHLIST_TABLE_NAME} (symbol, email, latest_price, updated_at)
-        VALUES (%s, %s, %s, now())
-        ON CONFLICT (symbol, email) DO UPDATE
-            SET latest_price = EXCLUDED.latest_price,
-                updated_at = EXCLUDED.updated_at
+        INSERT INTO {TICKETS_TABLE_NAME} (ticket_id, title, status, priority, created_by)
+        VALUES (%s, %s, %s, %s, %s)
         """,
-        (symbol, email, price),
+        (ticket_id, title, status, priority, created_by),
     )
 
-    return jsonify({"symbol": symbol, "email": email, "latest_price": price})
+    return jsonify(_ticket_row(ticket_id)), 201
 
 
-def _extract_latest_price(data: dict) -> float | None:
-    """Pull the trade price out of the Massive 'previous close' response shape.
-
-    The /v2/aggs/ticker/{symbol}/prev endpoint returns "results" as a LIST
-    containing a single aggregate bar (not a dict), e.g.:
-        {"status": "OK", "resultsCount": 1, "results": [{"c": 148.845, ...}]}
-    Previously this code treated "results" as a dict, so isinstance(results, dict)
-    was always False for this endpoint's real shape and the price silently
-    resolved to None. Unwrap the list here, and check "status"/"resultsCount"
-    so invalid tickers (empty results) are detected instead of "succeeding"
-    with a null price.
-
-    Adjust the key lookup here if the real Massive API returns a different
-    field name for the traded/close price.
-    """
-    if not isinstance(data, dict):
-        return None
-    if data.get("status") not in (None, "OK") or data.get("resultsCount") == 0:
-        return None
-    results = data.get("results", data)
-    if isinstance(results, list):
-        results = results[0] if results else None
-    if isinstance(results, dict):
-        for key in ("c", "p", "price", "last_price", "vw"):
-            if key in results:
-                return results[key]
-    return None
+@app.route("/tickets/<ticket_id>", methods=["GET"])
+def get_ticket(ticket_id: str):
+    ensure_schema()
+    ticket = _ticket_row(ticket_id)
+    if ticket is None:
+        abort(404, description="Ticket not found")
+    return jsonify({"ticket": ticket, "messages": _message_rows(ticket_id)})
 
 
-def _upsert_batch(items: list[dict]) -> int:
-    """Upsert a batch of Massive API items into Lakebase, one statement per row.
+@app.route("/tickets/<ticket_id>", methods=["PATCH"])
+def update_ticket(ticket_id: str):
+    ensure_schema()
+    ticket = _ticket_row(ticket_id)
+    if ticket is None:
+        abort(404, description="Ticket not found")
 
-    For very large batches, consider psycopg2.extras.execute_values for
-    higher throughput instead of per-row execute calls.
-    """
-    import json as _json
+    data = _payload()
 
-    count = 0
-    with lakebase.get_connection() as conn:
-        with conn.cursor() as cur:
-            for item in items:
-                cur.execute(
-                    f"""
-                    INSERT INTO {TABLE_NAME} (id, payload, synced_at)
-                    VALUES (%s, %s, now())
-                    ON CONFLICT (id) DO UPDATE
-                        SET payload = EXCLUDED.payload,
-                            synced_at = EXCLUDED.synced_at
-                    """,
-                    (str(item.get("id")), _json.dumps(item)),
-                )
-                count += 1
-            conn.commit()
-    return count
+    if "status" in data:
+        try:
+            status = _normalize_status(data.get("status"))
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+
+        lakebase.run_write(
+            f"""
+            UPDATE {TICKETS_TABLE_NAME}
+            SET status = %s
+            WHERE ticket_id = %s
+            """,
+            (status, ticket_id),
+        )
+
+    if "priority" in data:
+        try:
+            priority = _normalize_priority(data.get("priority"))
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+
+        lakebase.run_write(
+            f"""
+            UPDATE {TICKETS_TABLE_NAME}
+            SET priority = %s
+            WHERE ticket_id = %s
+            """,
+            (priority, ticket_id),
+        )
+
+    return jsonify(_ticket_row(ticket_id))
 
 
-if __name__ == '__main__':
-    host = os.getenv('FLASK_RUN_HOST', '0.0.0.0')
-    port = int(os.getenv('FLASK_RUN_PORT', 8000))
+@app.route("/tickets/<ticket_id>/messages", methods=["POST"])
+def add_message(ticket_id: str):
+    ensure_schema()
+    ticket = _ticket_row(ticket_id)
+    if ticket is None:
+        abort(404, description="Ticket not found")
+
+    data = _payload()
+    message_text = str(data.get("message_text", "")).strip()
+    if not message_text:
+        return jsonify({"error": "Message text is required"}), 400
+
+    author = str(data.get("author", "")).strip() or _current_user_email()
+    message_id = str(uuid.uuid4())
+
+    lakebase.run_write(
+        f"""
+        INSERT INTO {TICKET_MSG_TABLE_NAME} (message_id, ticket_id, message_text, author)
+        VALUES (%s, %s, %s, %s)
+        """,
+        (message_id, ticket_id, message_text, author),
+    )
+
+    return jsonify({"message_id": message_id, "ticket_id": ticket_id}), 201
+
+
+@app.route("/records")
+def redirect_records():
+    return jsonify({"error": "Use /tickets for this app"}), 410
+
+
+if __name__ == "__main__":
+    host = os.getenv("FLASK_RUN_HOST", "0.0.0.0")
+    port = int(os.getenv("FLASK_RUN_PORT", "8000"))
     app.run(debug=True, host=host, port=port)
-    print(f"Flask app running on http://{host}:{port}")

@@ -2,97 +2,483 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Massive Stock Watchlist</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lakebase Ticketing System</title>
   <style>
-    body { font-family: -apple-system, Arial, sans-serif; max-width: 560px; margin: 60px auto; color: #222; }
-    h1 { font-size: 20px; }
-    label { display: block; margin-top: 16px; font-weight: 600; }
-    input[type="text"] { width: 100%; padding: 8px; margin-top: 6px; box-sizing: border-box; }
-    button { margin-top: 16px; padding: 8px 16px; cursor: pointer; }
-    #result { margin-top: 20px; white-space: pre-wrap; background: #f6f6f6; padding: 12px; border-radius: 6px; min-height: 20px; }
-    .hint { color: #777; font-size: 13px; margin-top: 4px; }
-    table { width: 100%; margin-top: 24px; border-collapse: collapse; }
-    th, td { text-align: left; padding: 8px; border-bottom: 1px solid #ddd; }
-    th { font-size: 13px; color: #555; text-transform: uppercase; }
+    :root {
+      --panel: rgba(15, 23, 42, 0.78);
+      --panel-border: rgba(148, 163, 184, 0.18);
+      --text: #e2e8f0;
+      --muted: #94a3b8;
+      --accent: #38bdf8;
+      --accent-2: #22c55e;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: Georgia, "Times New Roman", serif;
+      color: var(--text);
+      background:
+        radial-gradient(circle at top left, rgba(56, 189, 248, 0.28), transparent 28%),
+        radial-gradient(circle at right, rgba(34, 197, 94, 0.18), transparent 24%),
+        linear-gradient(180deg, #020617 0%, #0f172a 100%);
+    }
+    .shell { max-width: 1400px; margin: 0 auto; padding: 32px 20px 40px; }
+    .hero { display: grid; gap: 12px; margin-bottom: 24px; }
+    h1 { margin: 0; font-size: clamp(2rem, 4vw, 3.8rem); letter-spacing: -0.03em; }
+    .subtle { color: var(--muted); max-width: 760px; line-height: 1.6; }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--panel-border);
+      border-radius: 18px;
+      backdrop-filter: blur(14px);
+      box-shadow: 0 24px 60px rgba(2, 6, 23, 0.35);
+      overflow: hidden;
+      margin-bottom: 20px;
+    }
+    .card h2 {
+      margin: 0;
+      padding: 18px 20px;
+      font-size: 1.1rem;
+      border-bottom: 1px solid var(--panel-border);
+    }
+    .card-body { padding: 20px; }
+    .form-compact {
+      display: grid;
+      grid-template-columns: 1fr 220px 180px auto;
+      gap: 12px;
+      align-items: end;
+    }
+    .form-field { display: flex; flex-direction: column; }
+    label { display: block; margin: 0 0 6px; font-size: 0.92rem; color: #cbd5e1; }
+    input, select, textarea, button {
+      width: 100%;
+      border-radius: 12px;
+      border: 1px solid rgba(148, 163, 184, 0.25);
+      background: rgba(15, 23, 42, 0.9);
+      color: var(--text);
+      padding: 12px 14px;
+      font: inherit;
+    }
+    textarea { min-height: 100px; resize: vertical; }
+    button {
+      cursor: pointer;
+      background: linear-gradient(135deg, var(--accent), #818cf8);
+      border: 0;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: rgba(148, 163, 184, 0.12);
+      margin-top: 10px;
+      font-size: 0.85rem;
+    }
+    .status-dot { width: 8px; height: 8px; border-radius: 999px; background: var(--accent-2); }
+    .layout { display: grid; grid-template-columns: 1fr 500px; gap: 20px; }
+    .tickets { display: grid; gap: 12px; }
+    .ticket {
+      border: 1px solid rgba(148, 163, 184, 0.18);
+      border-radius: 16px;
+      background: rgba(15, 23, 42, 0.78);
+      padding: 16px;
+      cursor: pointer;
+    }
+    .ticket.active {
+      outline: 2px solid rgba(56, 189, 248, 0.5);
+      background: rgba(56, 189, 248, 0.08);
+    }
+    .ticket-head { display: flex; justify-content: space-between; gap: 16px; align-items: center; }
+    .ticket-title { font-weight: 700; font-size: 1.05rem; }
+    .badge {
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      background: rgba(56, 189, 248, 0.14);
+      color: #7dd3fc;
+      flex-shrink: 0;
+    }
+    .ticket-meta {
+      color: var(--muted);
+      margin-top: 8px;
+      font-size: 0.88rem;
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .messages { display: grid; gap: 12px; max-height: 400px; overflow-y: auto; padding: 2px; }
+    .message {
+      border-left: 3px solid rgba(56, 189, 248, 0.6);
+      padding: 10px 12px;
+      background: rgba(15, 23, 42, 0.7);
+      border-radius: 12px;
+    }
+    .message small { color: var(--muted); display: block; margin-bottom: 6px; }
+    .empty {
+      color: var(--muted);
+      border: 1px dashed rgba(148, 163, 184, 0.25);
+      border-radius: 12px;
+      padding: 24px;
+      text-align: center;
+    }
+    .split { display: grid; gap: 14px; }
+    .error { color: #fecaca; }
+    .hidden { display: none; }
+    #detail-panel { position: sticky; top: 20px; align-self: start; }
+    .toolbar {
+      display: flex;
+      gap: 12px;
+      align-items: end;
+      flex-wrap: wrap;
+      margin-bottom: 12px;
+    }
+    .toolbar .form-field { min-width: 200px; }
+    @media (max-width: 1100px) {
+      .layout { grid-template-columns: 1fr; }
+      #detail-panel { position: relative; top: 0; }
+      .form-compact { grid-template-columns: 1fr; }
+    }
   </style>
 </head>
 <body>
-  <h1>Stock Watchlist</h1>
-  <p class="hint">Enter a single ticker symbol. This sends exactly ONE call to the Massive API to fetch the latest price, then adds it to your watchlist.</p>
+  <div class="shell">
+    <div class="hero">
+      <h1>Support tickets, backed by Lakebase.</h1>
+      <div class="subtle">
+        Create support tickets, prioritize them, filter by status, and store every operational record in Lakebase.
+      </div>
+    </div>
 
-  <form id="stock-form">
-    <label for="symbol">Ticker symbol</label>
-    <input type="text" id="symbol" name="symbol" placeholder="AAPL" required>
-    <button type="submit">Add to watchlist</button>
-  </form>
+    <section class="card">
+      <h2>Create New Ticket</h2>
+      <div class="card-body">
+        <form id="ticket-form" class="form-compact">
+          <div class="form-field">
+            <label for="title">Title</label>
+            <input id="title" name="title" placeholder="Payment issue for customer ACME" required>
+          </div>
 
-  <div id="result"></div>
+          <div class="form-field">
+            <label for="status">Status</label>
+            <select id="status" name="status">
+              <option value="open">Open</option>
+              <option value="in_progress">In progress</option>
+              <option value="resolved">Resolved</option>
+              <option value="closed">Closed</option>
+            </select>
+          </div>
 
-  <table id="watchlist-table">
-    <thead>
-      <tr>
-        <th>Symbol</th>
-        <th>Email</th>
-        <th>Latest price</th>
-        <th>Updated</th>
-      </tr>
-    </thead>
-    <tbody id="watchlist-body"></tbody>
-  </table>
+          <div class="form-field">
+            <label for="priority">Priority</label>
+            <select id="priority" name="priority">
+              <option value="low">Low</option>
+              <option value="medium" selected>Medium</option>
+              <option value="high">High</option>
+            </select>
+          </div>
+
+          <button type="submit">Create ticket</button>
+        </form>
+
+        <div id="ticket-status" class="status"><span class="status-dot"></span><span>Ready</span></div>
+      </div>
+    </section>
+
+    <div class="layout">
+      <section class="card">
+        <h2>All Tickets</h2>
+        <div class="card-body">
+          <div class="toolbar">
+            <div class="form-field">
+              <label for="filter-status">Filter by status</label>
+              <select id="filter-status">
+                <option value="">All</option>
+                <option value="open">Open</option>
+                <option value="in_progress">In progress</option>
+                <option value="resolved">Resolved</option>
+                <option value="closed">Closed</option>
+              </select>
+            </div>
+            <button type="button" id="clear-filter" style="width:auto; padding:12px 16px;">Clear filter</button>
+          </div>
+          <div id="tickets" class="tickets"></div>
+        </div>
+      </section>
+
+      <section class="card hidden" id="detail-panel">
+        <h2>Ticket Detail</h2>
+        <div class="card-body split" id="detail"></div>
+      </section>
+    </div>
+  </div>
 
   <script>
-    const form = document.getElementById("stock-form");
-    const resultEl = document.getElementById("result");
-    const watchlistBody = document.getElementById("watchlist-body");
+    const ticketForm = document.getElementById("ticket-form");
+    const ticketStatus = document.getElementById("ticket-status");
+    const ticketsEl = document.getElementById("tickets");
+    const detailEl = document.getElementById("detail");
+    const detailPanel = document.getElementById("detail-panel");
+    const filterStatus = document.getElementById("filter-status");
+    const clearFilter = document.getElementById("clear-filter");
+    let selectedTicketId = null;
 
-    async function loadWatchlist() {
-      try {
-        const resp = await fetch("/watchlist");
-        const data = await resp.json();
-        if (!resp.ok) {
-          resultEl.textContent = "Error loading watchlist: " + (data.error || resp.statusText);
-          return;
-        }
-        watchlistBody.innerHTML = "";
-        data.forEach((row) => {
-          const tr = document.createElement("tr");
-          const price = row.latest_price !== null && row.latest_price !== undefined
-            ? Number(row.latest_price).toFixed(2)
-            : "-";
-          const updated = row.updated_at ? new Date(row.updated_at).toLocaleString() : "-";
-          tr.innerHTML = `<td>${row.symbol}</td><td>${row.email || "-"}</td><td>${price}</td><td>${updated}</td>`;
-          watchlistBody.appendChild(tr);
-        });
-      } catch (err) {
-        resultEl.textContent = "Failed to load watchlist: " + err;
-      }
+    function setStatus(message, isError = false) {
+      ticketStatus.innerHTML = "";
+      const dot = document.createElement("span");
+      dot.className = "status-dot";
+      const text = document.createElement("span");
+      if (isError) text.className = "error";
+      text.textContent = message;
+      ticketStatus.appendChild(dot);
+      ticketStatus.appendChild(text);
     }
 
-    form.addEventListener("submit", async (e) => {
-      e.preventDefault();
-      const symbol = document.getElementById("symbol").value;
-      resultEl.textContent = "Adding to watchlist...";
+    function formatDate(value) {
+      if (!value) return "-";
+      const parsed = new Date(value);
+      return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString();
+    }
 
-      try {
-        const resp = await fetch("/watchlist", {
-          method: "POST",
+    function renderTickets(items) {
+      ticketsEl.innerHTML = "";
+      if (!items.length) {
+        ticketsEl.innerHTML = '<div class="empty">No tickets match this filter.</div>';
+        return;
+      }
+
+      items.forEach((ticket) => {
+        const row = document.createElement("div");
+        row.className = "ticket" + (ticket.ticket_id === selectedTicketId ? " active" : "");
+
+        const head = document.createElement("div");
+        head.className = "ticket-head";
+
+        const title = document.createElement("div");
+        title.className = "ticket-title";
+        title.textContent = ticket.title;
+
+        const badge = document.createElement("div");
+        badge.className = "badge";
+        badge.textContent = ticket.status;
+
+        head.appendChild(title);
+        head.appendChild(badge);
+
+        const meta = document.createElement("div");
+        meta.className = "ticket-meta";
+        const createdBy = document.createElement("span");
+        createdBy.textContent = "Created by: " + (ticket.created_by || "Unknown");
+        const createdAt = document.createElement("span");
+        createdAt.textContent = "Created: " + formatDate(ticket.created_at);
+        const priority = document.createElement("span");
+        priority.textContent = "Priority: " + (ticket.priority || "medium");
+        const messages = document.createElement("span");
+        messages.textContent = (ticket.message_count ?? 0) + " messages";
+        meta.appendChild(createdBy);
+        meta.appendChild(createdAt);
+        meta.appendChild(priority);
+        meta.appendChild(messages);
+
+        row.appendChild(head);
+        row.appendChild(meta);
+        row.addEventListener("click", () => openTicket(ticket.ticket_id));
+        ticketsEl.appendChild(row);
+      });
+    }
+
+    function renderDetail(ticket, messages) {
+      detailEl.innerHTML = "";
+
+      if (!ticket) {
+        detailPanel.classList.add("hidden");
+        return;
+      }
+
+      detailPanel.classList.remove("hidden");
+
+      const header = document.createElement("div");
+      header.style.marginBottom = "16px";
+
+      const titleText = document.createElement("div");
+      titleText.style.fontSize = "1.15rem";
+      titleText.style.fontWeight = "700";
+      titleText.style.marginBottom = "8px";
+      titleText.textContent = ticket.title;
+
+      const meta = document.createElement("div");
+      meta.className = "meta";
+      meta.textContent = `Created by: ${ticket.created_by} · ${formatDate(ticket.created_at)} · Priority: ${ticket.priority}`;
+
+      const statusForm = document.createElement("form");
+      statusForm.style.marginTop = "12px";
+      statusForm.style.display = "flex";
+      statusForm.style.gap = "8px";
+      statusForm.style.alignItems = "center";
+      statusForm.innerHTML = `
+        <label for="ticket-status-select" style="margin: 0; font-size: 0.92rem;">Status:</label>
+        <select id="ticket-status-select" name="status" style="width: auto; padding: 8px 12px;">
+          <option value="open" ${ticket.status === "open" ? "selected" : ""}>Open</option>
+          <option value="in_progress" ${ticket.status === "in_progress" ? "selected" : ""}>In progress</option>
+          <option value="resolved" ${ticket.status === "resolved" ? "selected" : ""}>Resolved</option>
+          <option value="closed" ${ticket.status === "closed" ? "selected" : ""}>Closed</option>
+        </select>
+        <button type="submit" style="width: auto; padding: 8px 16px; margin: 0;">Update</button>
+      `;
+
+      statusForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const newStatus = statusForm.querySelector("select").value;
+        const resp = await fetch(`/tickets/${ticket.ticket_id}`, {
+          method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ symbol }),
+          body: JSON.stringify({ status: newStatus }),
         });
         const data = await resp.json();
         if (!resp.ok) {
-          resultEl.textContent = "Error: " + (data.error || resp.statusText);
+          setStatus(data.error || resp.statusText, true);
           return;
         }
-        resultEl.textContent = "Added " + data.symbol + " at price " + data.latest_price;
-        document.getElementById("symbol").value = "";
-        loadWatchlist();
-      } catch (err) {
-        resultEl.textContent = "Request failed: " + err;
+        setStatus("Status updated");
+        await openTicket(ticket.ticket_id);
+      });
+
+      header.appendChild(titleText);
+      header.appendChild(meta);
+      header.appendChild(statusForm);
+
+      const messagesTitle = document.createElement("h3");
+      messagesTitle.textContent = "Messages";
+      messagesTitle.style.fontSize = "1rem";
+      messagesTitle.style.marginTop = "0";
+      messagesTitle.style.marginBottom = "12px";
+
+      const list = document.createElement("div");
+      list.className = "messages";
+      if (!messages.length) {
+        list.innerHTML = '<div class="empty">No messages yet.</div>';
+      } else {
+        messages.forEach((message) => {
+          const item = document.createElement("div");
+          item.className = "message";
+          const metaLine = document.createElement("small");
+          metaLine.textContent = `${message.author} · ${formatDate(message.created_at)}`;
+          const text = document.createElement("div");
+          text.textContent = message.message_text;
+          item.appendChild(metaLine);
+          item.appendChild(text);
+          list.appendChild(item);
+        });
       }
+
+      const messageForm = document.createElement("form");
+      messageForm.style.marginTop = "16px";
+      messageForm.innerHTML = `
+        <label for="message_text">Add Message</label>
+        <textarea id="message_text" name="message_text" placeholder="Share an update, question, or resolution note..." required></textarea>
+        <button type="submit">Post message</button>
+      `;
+
+      messageForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const formData = new FormData(messageForm);
+        const payload = { message_text: formData.get("message_text") };
+
+        const resp = await fetch(`/tickets/${ticket.ticket_id}/messages`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const data = await resp.json();
+        if (!resp.ok) {
+          setStatus(data.error || resp.statusText, true);
+          return;
+        }
+        messageForm.reset();
+        await openTicket(ticket.ticket_id);
+        setStatus("Message posted");
+      });
+
+      detailEl.appendChild(header);
+      detailEl.appendChild(messagesTitle);
+      detailEl.appendChild(list);
+      detailEl.appendChild(messageForm);
+    }
+
+    async function loadTickets() {
+      const status = filterStatus.value;
+      const url = status ? `/tickets?status=${encodeURIComponent(status)}` : "/tickets";
+      const resp = await fetch(url);
+      const data = await resp.json();
+      if (!resp.ok) {
+        setStatus(data.error || resp.statusText, true);
+        return [];
+      }
+      renderTickets(data);
+      return data;
+    }
+
+    async function openTicket(ticketId) {
+      selectedTicketId = ticketId;
+      const resp = await fetch(`/tickets/${ticketId}`);
+      const data = await resp.json();
+      if (!resp.ok) {
+        setStatus(data.error || resp.statusText, true);
+        return;
+      }
+      const tickets = await loadTickets();
+      renderTickets(tickets);
+      renderDetail(data.ticket, data.messages);
+    }
+
+    ticketForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const formData = new FormData(ticketForm);
+      const payload = {
+        title: formData.get("title"),
+        status: formData.get("status"),
+        priority: formData.get("priority"),
+      };
+
+      setStatus("Creating ticket...");
+      const resp = await fetch("/tickets", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await resp.json();
+      if (!resp.ok) {
+        setStatus(data.error || resp.statusText, true);
+        return;
+      }
+
+      ticketForm.reset();
+      document.getElementById("status").value = "open";
+      document.getElementById("priority").value = "medium";
+      selectedTicketId = data.ticket_id;
+      setStatus("Ticket created");
+      await loadTickets();
+      await openTicket(data.ticket_id);
     });
 
-    loadWatchlist();
+    filterStatus.addEventListener("change", () => {
+      selectedTicketId = null;
+      detailPanel.classList.add("hidden");
+      loadTickets().catch((err) => setStatus("Failed to load tickets: " + err, true));
+    });
+
+    clearFilter.addEventListener("click", () => {
+      filterStatus.value = "";
+      filterStatus.dispatchEvent(new Event("change"));
+    });
+
+    loadTickets().catch((err) => setStatus("Failed to load tickets: " + err, true));
   </script>
 </body>
 </html>
